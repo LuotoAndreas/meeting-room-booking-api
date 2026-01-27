@@ -1,14 +1,14 @@
 Promptihistoria ChatGPT:n kanssa.
 Käytin ChatGPT:tä englanniksi, koska koen saavani sillä tarkempia ja luotettavampia vastauksia. Lähestymistapani oli ensin käyttää tekoälyä varmentamaan muutamia esikysymyksiä (esim. aikakäsittely, päällekkäisyyksien estäminen ja HTTP-statuskoodit) ennen varsinaisten toteutuspromptien kirjoittamista. Näiden pohjalta pystyin laatimaan selkeät ja rajatut promptit itse ohjelman tuottamista varten. Varsinainen koodin generointi tehtiin vasta tämän jälkeen mikä mielestäni vähentää korjausta vaativia bugeja huomattavasti. 
 
--------------------------------------------------------------------------------------------------------------------------------------
-## 1. Esikysymykset ennen varsinaisia prompteja: Aikakäsittely, varausten aikavälit sekä HTTP-statuskoodit varausrajapinnassa.
--------------------------------------------------------------------------------------------------------------------------------------
+
+## Vaihe 1: Tekoäly parikoodaajana. Esikysymykset ennen varsinaisia prompteja: Aikakäsittely, varausten aikavälit sekä HTTP-statuskoodit varausrajapinnassa.
+
 ### Prompti: 
 
 I'm designing a simple meeting room booking API. I want to avoid common bugs and overengineering, especially around time handling and booking conflicts. What are the best practices and default choices I should use for representing time and defining booking intervals, and why are they recommended? Keep the answer brief.
 
--------------------------------------------------------------------------------------------------------------------------------------
+
 ### AI-vastaus: 
 Best-practice defaults for a simple booking API:
 
@@ -21,12 +21,12 @@ Why: prevents edge-case conflicts—one booking ending at 10:00 and another star
 
 Together, these two choices eliminate most subtle time-handling and double-booking bugs without adding complexity.
 
--------------------------------------------------------------------------------------------------------------------------------------
+
 ### Prompti: 
 
 Explain which HTTP status codes should I use in a simple meeting room booking API. Cover the following operations: creating a booking, cancelling a booking, retrieving (listing) all bookings. For each operation: list the most appropriate status codes, explain shortly when each code should be returned, mention common alternatives if they exist and why one is preferred. Keep the explanation short and focused on best practices. Do not add features other than basic booking, cancellation, listing, validation, and conflict handling. Make it brief.
 
--------------------------------------------------------------------------------------------------------------------------------------
+
 ### AI-vastaus: 
 
 Create a booking — POST /bookings
@@ -47,17 +47,17 @@ List all bookings — GET /bookings
   Alternative: 204 No Content for an empty list is sometimes used, but 200 with [] is generally preferred because it’s simpler and consistent for clients.
 Minimal best-practice set to implement: 201, 200, 204, 404, 409, and either 422 or 400 for validation (pick one and use it everywhere).
 
--------------------------------------------------------------------------------------------------------------------------------------
+
 ## OMAT OLETUKSET: 
   Päätin käyttää toteutuksessa ISO-8601-aikaleimoja aikavyöhyketiedolla ja mallintaa varaukset aikaväleinä [start, end), jotta peräkkäiset varaukset ovat sallittuja ilman päällekkäisyysongelmia. Käytän 422-validointivirheisiin ja 409-päällekkäisyystilanteisiin, jotta virhetilanteet ovat asiakkaalle selkeitä ja yhdenmukaisia. Koska tallennus on in-memory, kaikki data häviää jos palvelimen käynnistää uudestaan.
   
-## 2. Toteutus: API-suunnitelma: 
--------------------------------------------------------------------------------------------------------------------------------------
+## Toteutus: API-suunnitelma: 
+
 ### Prompti
 
 Propose a minimal API design for meeting room bookings. It needs to: create booking, cancel booking, list bookings for a room. Also list the assumptions you are making (time format, timezone, overlap definition including back-to-back bookings, cancellation behavior and booking id).
 
--------------------------------------------------------------------------------------------------------------------------------------
+
 ### AI-vastaus
 
 Minimal API (REST, JSON)
@@ -157,14 +157,14 @@ bookingId is server-generated, unique, opaque (string).
 Clients must treat it as an immutable identifier and never derive meaning from it.
 If you want the absolute-minimum version even further: drop title/createdBy and require only {start,end}—everything else is optional.
 
--------------------------------------------------------------------------------------------------------------------------------------
-## 3. Toteutus: Säännöt ja ääritapaukset: 
--------------------------------------------------------------------------------------------------------------------------------------
+
+## Toteutus: Säännöt ja ääritapaukset: 
+
 ### Prompti
 
 Next, apply these rules exactly: bookings for the same room must not overlap, bookings cannot be in the past, start must be before end. Define overlap precisely (I want back-to-back bookings to be allowed). List the edge cases we must test, especially for overlap and time.
 
--------------------------------------------------------------------------------------------------------------------------------------
+
 ### AI-vastaus
 
 Rules (applied exactly)
@@ -264,16 +264,16 @@ G) Time parsing / normalization
 
 If you want, I can also write these as a concrete test matrix (Given/When/Then) and include the exact expected HTTP status codes for each case.
 
--------------------------------------------------------------------------------------------------------------------------------------
-## 4. Toteutus: FastAPI sekä koodin tuotto: 
--------------------------------------------------------------------------------------------------------------------------------------
+
+## Toteutus: FastAPI sekä koodin tuotto: 
+
 ### Prompti
 
 Now implement the API using Python + FastAPI with an in-memory data store (no need to use MySQL or PostgreSQL). Keep it minimal and readable. The endpoints needed are: POST /bookings, DELETE /bookings/{booking_id}, GET /rooms/{room_id}/bookings. The input for create: {"room_id": "...", "start": "...", "end": "..."} using ISO-8601 timestamps WITH the timezone. Cancellation deletes the booking (hard delete). Enforce these rules: start must be before end, bookings cannot be in the past, and bookings for the same room must not overlap. Allow back-to-back by treating intervals as [start, end). 
 
 Add status codes: 201 on create, 404 if cancelling unknow id, 409 on overlap conflict and 422 for validation errors (or explain clearly if you choose 400). Don't add extra features I didn't ask for. Output the full file contents and a simple folder structure.
 
--------------------------------------------------------------------------------------------------------------------------------------
+
 ### AI-vastaus
 
 Folder structure:
@@ -455,3 +455,474 @@ Run locally (example):
 
 pip install fastapi uvicorn
 uvicorn main:app --reload
+
+
+## Vaihe 2: Ihmisen vuoro – refaktorointi ja parannukset
+
+### Prompti:
+
+Now review this initial FastAPI code generated by an AI. Focus especially on: whether different responsibilities are mixed together, code structure, potential maintainability issues. Do not add new features. List concrete improvement suggestions and explain why they are important.
+
+### AI-vastaus
+
+Got it. Here’s a focused code review centered on separation of responsibilities, structure, and maintainability, without proposing new features.
+
+High-level assessment
+
+The code is clean, readable, and correct, especially for an in-memory demo. However, several responsibilities are tightly coupled inside the same module and functions, which will make the code harder to evolve once requirements grow (persistence, auth, testing, background tasks, etc.).
+
+Below are concrete improvement suggestions, each with why it matters.
+
+1. Mixed responsibilities in the API layer
+Issue: Your FastAPI endpoint functions currently handle:
+- HTTP concerns (status codes, request/response models)
+- Domain validation (time rules, overlap rules)
+- Business logic (booking creation, deletion)
+- Data storage (mutating the global BOOKINGS dict)
+- Concurrency control (LOCK)
+
+Example:
+
+```python
+@app.post("/bookings")
+def create_booking(...):
+    start = ...
+    if not (start < end):
+        raise HTTPException(...)
+    ...
+    with LOCK:
+        for b in BOOKINGS.values():
+            ...
+        BOOKINGS[booking_id] = Booking(...)
+```
+
+Why this matters
+- Harder to unit test business rules without spinning up FastAPI
+- Business logic cannot be reused (e.g. CLI, background jobs, future API versions)
+- Endpoints become long and fragile as rules grow
+
+Improvement: Move booking logic into a dedicated service layer, e.g.:
+- services/booking_service.py → validation + overlap logic
+- API layer → only calls service + maps exceptions to HTTP
+This keeps endpoints thin and intention-revealing.
+
+2. Global mutable state (BOOKINGS, LOCK)
+Issue:
+
+```python
+BOOKINGS: Dict[str, Booking] = {}
+LOCK = Lock()
+```
+
+These globals are accessed directly from multiple endpoints.
+
+Why this matters
+- Makes behavior implicit and harder to reason about
+- Difficult to swap storage later (DB, cache, external service)
+- Makes tests order-dependent unless carefully reset
+- Ties concurrency strategy (threading.Lock) to storage
+
+Improvement: Encapsulate state in a repository-like object:
+
+```python
+class BookingRepository:
+    def __init__(self):
+        self._items = {}
+        self._lock = Lock()
+```
+
+Even if still in-memory, this:
+- Localizes concurrency concerns
+- Makes future persistence changes mechanical
+- Improves test isolation
+
+3. Validation logic is split across layers
+Issue: Validation is spread across:
+- Pydantic validators (must_be_iso8601_with_tz)
+- Helper functions (parse_iso8601_tz)
+- Endpoint logic (start < end, start >= now)
+- Business rules inside loops (overlap detection)
+
+Why this matters
+- Validation rules are hard to discover
+- Changes require touching multiple places
+- Hard to reuse validation outside this API
+
+Improvement: Group validation by type:
+- Parsing/format validation → input layer
+- Temporal/business rules → service/domain layer
+
+Even a single validate_booking_times(start, end) function would:
+- Centralize intent
+- Reduce duplication
+- Make rules easier to audit
+
+4. Domain model and transport model are coupled
+Issue: You convert between:
+- CreateBookingIn (strings)
+- Booking (UTC datetimes)
+- BookingOut (strings again)
+But the conversion logic is embedded in endpoints.
+
+Why this matters
+- Mapping logic gets duplicated across endpoints
+- Harder to change representation later (e.g. always store ISO strings, or always datetimes)
+- Endpoints become cluttered with formatting details
+
+Improvement: Introduce explicit mapping functions, e.g.:
+
+```python
+def booking_to_out(b: Booking) -> BookingOut
+```
+
+This:
+- Removes formatting noise from endpoints
+- Makes representation changes localized
+- Improves readability
+
+5. Error handling is tightly coupled to HTTP
+Issue: Business rule violations directly raise HTTPException:
+
+```python
+if intervals_overlap(...):
+    raise HTTPException(status_code=409, ...)
+```
+
+Why this matters
+- Business logic becomes HTTP-specific
+- Cannot reuse logic outside FastAPI
+- Makes non-HTTP testing awkward
+
+Improvement:
+Raise domain-specific exceptions (e.g. OverlapError, PastBookingError) and translate them to HTTP in the API layer.
+
+This keeps:
+- Domain logic framework-agnostic
+- HTTP concerns where they belong
+
+6. Single-file structure limits scalability
+Issue: Everything lives in one module:
+- Models
+- Helpers
+- State
+- Endpoints
+- Business logic
+
+Why this matters
+- File will grow quickly with even small changes
+- Harder to navigate and reason about
+- Merge conflicts become more likely
+
+Improvement: Split by responsibility, not size:
+- models.py (Pydantic + dataclasses)
+- services.py (booking logic)
+- repository.py (storage + locking)
+- api.py (FastAPI routes)
+Even if each file is small, this improves mental load.
+
+7. Time handling rules are implicit
+Issue: Rules like “half-open intervals” and “UTC normalization” are correct but only documented in comments.
+- Why this matters
+- Easy to accidentally break later
+- New contributors may misunderstand behavior
+- Bugs appear silently (especially with time zones)
+
+Improvement
+- Make these rules first-class concepts:
+- Named helper functions already help (intervals_overlap)
+- Consider docstrings or comments at service level, not just helpers
+This improves long-term correctness.
+
+8. Threading model assumptions are hidden
+Issue: Using threading.Lock assumes:
+- Threaded execution
+- Shared memory
+- No async concurrency concerns
+
+Why this matters
+- FastAPI commonly runs with async workers
+- Mixing sync locks and async code can cause confusion later
+- The locking strategy is implicit, not documented
+
+Improvement at minimum:
+- Document concurrency assumptions clearly
+- Isolate locking inside the repository/service
+This avoids subtle production issues later.
+
+Summary (TL;DR)
+
+What’s good
+- Clear logic
+- Correct time handling
+- Explicit validation
+- Safe overlap rules
+
+Main maintainability risks
+- Too much logic in endpoints
+- Global mutable state
+- HTTP concerns mixed with domain logic
+- Single-file structure
+
+Biggest win with minimal change
+- Move booking logic + storage behind a service/repository boundary and keep FastAPI endpoints thin.
+
+If you want, next we can:
+- Refactor one endpoint only as an example
+- Review this from a testability angle
+- Review it as if it were going to production in a team setting
+
+
+### Prompti:
+
+Now refactor this FastAPI code so that the API endpoints do only minimal work. Move all booking-related logic (such as validation and business rules) into a separate service layer. The API must behave exactly the same as before: same endpoints, same status codes, and same response bodies. Do not add new features or change how anything works. The FastAPI routes should only receive the request, call the service, and return the response. After the refactor, shortly explain what code was moved and why.
+
+### AI-vastaus:
+
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from threading import Lock
+from typing import Dict, List
+from uuid import uuid4
+
+from fastapi import FastAPI, HTTPException, Path, status
+from pydantic import BaseModel, Field, field_validator
+
+
+app = FastAPI(title="Meeting Room Booking API", version="1.0.0")
+
+
+# -----------------------------
+# Shared time helpers
+# -----------------------------
+def parse_iso8601_tz(ts: str) -> datetime:
+    """
+    Parse ISO-8601 timestamp with timezone into an aware datetime.
+    Accepts 'Z' suffix by converting it to '+00:00'.
+    """
+    if not isinstance(ts, str) or not ts.strip():
+        raise ValueError("timestamp must be a non-empty string")
+
+    s = ts.strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+
+    dt = datetime.fromisoformat(s)  # expects offset like +02:00 or +00:00
+    if dt.tzinfo is None or dt.utcoffset() is None:
+        raise ValueError("timestamp must include a timezone offset")
+    return dt
+
+
+def to_utc(dt: datetime) -> datetime:
+    # dt is aware
+    return dt.astimezone(timezone.utc)
+
+
+def intervals_overlap(a_start: datetime, a_end: datetime, b_start: datetime, b_end: datetime) -> bool:
+    """
+    Half-open interval overlap: [start, end)
+    Overlap iff a_start < b_end AND b_start < a_end.
+    Back-to-back is allowed (end == other.start is NOT overlap).
+    """
+    return a_start < b_end and b_start < a_end
+
+
+def utc_iso_z(dt: datetime) -> str:
+    # dt is aware, UTC
+    return dt.isoformat().replace("+00:00", "Z")
+
+
+# -----------------------------
+# API models (transport layer)
+# -----------------------------
+class CreateBookingIn(BaseModel):
+    room_id: str = Field(..., min_length=1)
+    start: str
+    end: str
+
+    @field_validator("start", "end")
+    @classmethod
+    def must_be_iso8601_with_tz(cls, v: str) -> str:
+        # Validate format + timezone presence early; actual comparison happens in service.
+        parse_iso8601_tz(v)
+        return v
+
+
+class BookingOut(BaseModel):
+    booking_id: str
+    room_id: str
+    start: str  # ISO-8601 with timezone (we return UTC with Z)
+    end: str
+
+
+# -----------------------------
+# Domain model
+# -----------------------------
+@dataclass(frozen=True)
+class Booking:
+    booking_id: str
+    room_id: str
+    start_utc: datetime  # aware, UTC
+    end_utc: datetime    # aware, UTC
+
+
+# -----------------------------
+# Repository (storage + locking)
+# -----------------------------
+class InMemoryBookingRepository:
+    def __init__(self) -> None:
+        self._items: Dict[str, Booking] = {}
+        self._lock = Lock()
+
+    def list_by_room(self, room_id: str) -> List[Booking]:
+        with self._lock:
+            return [b for b in self._items.values() if b.room_id == room_id]
+
+    def get_all(self) -> List[Booking]:
+        with self._lock:
+            return list(self._items.values())
+
+    def insert(self, booking: Booking) -> None:
+        with self._lock:
+            self._items[booking.booking_id] = booking
+
+    def delete(self, booking_id: str) -> bool:
+        with self._lock:
+            if booking_id not in self._items:
+                return False
+            del self._items[booking_id]
+            return True
+
+
+# -----------------------------
+# Service layer (business rules)
+# -----------------------------
+class BookingError(Exception):
+    """Base class for domain/service errors."""
+
+
+class StartNotBeforeEndError(BookingError):
+    pass
+
+
+class StartInPastError(BookingError):
+    pass
+
+
+class OverlapConflictError(BookingError):
+    pass
+
+
+class BookingNotFoundError(BookingError):
+    pass
+
+
+class BookingService:
+    def __init__(self, repo: InMemoryBookingRepository) -> None:
+        self._repo = repo
+
+    def create_booking(self, payload: CreateBookingIn) -> BookingOut:
+        start = to_utc(parse_iso8601_tz(payload.start))
+        end = to_utc(parse_iso8601_tz(payload.end))
+
+        # Rule: start must be before end
+        if not (start < end):
+            raise StartNotBeforeEndError()
+
+        # Rule: bookings cannot be in the past (start >= now)
+        now = datetime.now(timezone.utc)
+        if start < now:
+            raise StartInPastError()
+
+        # Rule: bookings for the same room must not overlap (half-open intervals)
+        # NOTE: To preserve behavior, we compare against current in-memory state.
+        for b in self._repo.get_all():
+            if b.room_id != payload.room_id:
+                continue
+            if intervals_overlap(start, end, b.start_utc, b.end_utc):
+                raise OverlapConflictError()
+
+        booking_id = f"bkg_{uuid4().hex}"
+        booking = Booking(
+            booking_id=booking_id,
+            room_id=payload.room_id,
+            start_utc=start,
+            end_utc=end,
+        )
+        self._repo.insert(booking)
+
+        return BookingOut(
+            booking_id=booking.booking_id,
+            room_id=booking.room_id,
+            start=utc_iso_z(booking.start_utc),
+            end=utc_iso_z(booking.end_utc),
+        )
+
+    def delete_booking(self, booking_id: str) -> None:
+        # Cancellation is a hard delete.
+        deleted = self._repo.delete(booking_id)
+        if not deleted:
+            raise BookingNotFoundError()
+
+    def list_bookings_for_room(self, room_id: str) -> List[BookingOut]:
+        items = self._repo.list_by_room(room_id)
+        items.sort(key=lambda b: b.start_utc)
+
+        return [
+            BookingOut(
+                booking_id=b.booking_id,
+                room_id=b.room_id,
+                start=utc_iso_z(b.start_utc),
+                end=utc_iso_z(b.end_utc),
+            )
+            for b in items
+        ]
+
+
+# Wire up dependencies (still in-memory; behavior unchanged)
+_repo = InMemoryBookingRepository()
+_service = BookingService(_repo)
+
+
+# -----------------------------
+# API routes (minimal work)
+# -----------------------------
+@app.post("/bookings", response_model=BookingOut, status_code=status.HTTP_201_CREATED)
+def create_booking(payload: CreateBookingIn) -> BookingOut:
+    try:
+        return _service.create_booking(payload)
+    except StartNotBeforeEndError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Validation error: start must be before end.",
+        )
+    except StartInPastError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Validation error: booking start cannot be in the past.",
+        )
+    except OverlapConflictError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Overlap conflict: booking overlaps an existing booking in this room.",
+        )
+
+
+@app.delete("/bookings/{booking_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_booking(booking_id: str = Path(..., min_length=1)) -> None:
+    try:
+        _service.delete_booking(booking_id)
+        return None
+    except BookingNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Booking not found.",
+        )
+
+
+@app.get("/rooms/{room_id}/bookings", response_model=List[BookingOut])
+def list_bookings_for_room(room_id: str = Path(..., min_length=1)) -> List[BookingOut]:
+    return _service.list_bookings_for_room(room_id)
+```
