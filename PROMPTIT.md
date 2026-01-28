@@ -67,17 +67,17 @@ Base URL: /v1
 1) Create booking
 POST /rooms/{roomId}/bookings
 Request
-
+```python
 {
   "start": "2026-01-20T10:00:00Z",
   "end": "2026-01-20T11:00:00Z",
   "title": "Team sync",
   "createdBy": "user-123"
 }
-
+```
 Responses
 201 Created
-
+```python
 {
   "bookingId": "bkg_01HTYQ9Y2QK5W3B2Z8JZ6V7N8M",
   "roomId": "room-42",
@@ -88,15 +88,15 @@ Responses
   "status": "active",
   "createdAt": "2026-01-20T09:12:33Z"
 }
-
+```
 409 Conflict (overlap)
-
+```python
 {
   "error": "overlap",
   "message": "Booking overlaps with an existing booking.",
   "conflictsWith": ["bkg_01HTYQ8..."]
 }
-
+```
 400 Bad Request (invalid time range, missing fields, etc.)
 
 2) Cancel booking
@@ -110,7 +110,7 @@ Response
 GET /rooms/{roomId}/bookings?from=2026-01-20T00:00:00Z&to=2026-01-27T00:00:00Z
 Response
 200 OK
-
+```python
 {
   "roomId": "room-42",
   "from": "2026-01-20T00:00:00Z",
@@ -126,7 +126,7 @@ Response
     }
   ]
 }
-
+```
 Notes:
 from/to are optional but recommended to keep responses bounded.
 Default sort: start ascending.
@@ -926,3 +926,326 @@ def delete_booking(booking_id: str = Path(..., min_length=1)) -> None:
 def list_bookings_for_room(room_id: str = Path(..., min_length=1)) -> List[BookingOut]:
     return _service.list_bookings_for_room(room_id)
 ```
+
+What moved, and why:
+Business rules and validation moved from the endpoints into BookingService:
+- start < end, “start not in the past”, and overlap checks now live in one place.
+- This makes the rules easy to test without HTTP, and keeps them reusable.
+Storage + locking moved behind InMemoryBookingRepository:
+- Endpoints no longer touch global dicts or locks directly.
+- Concurrency concerns are localized to the repository.
+Endpoints now do minimal work:
+- Receive request → call service → return.
+- They only translate service-level errors into the exact same HTTPException status codes and detail messages as before (so API behavior and response bodies remain unchanged).
+
+### Prompti
+
+Next, refactor this FastAPI application by splitting the current single file into multiple files based on responsibility: use main.py for creating the FastAPI app and wiring everything together, api.py for route definitions, services.py for business logic and domain errors, repository.py for in-memory storage and locking, and models.py for Pydantic models and the Booking dataclass. The application must behave exactly the same as before, with the same endpoints, status codes, responses, and logic. This is a structure only refactor, so only move the existing code into these files, and update imports without changing how the app works. After this, briefly explain what was moved into each file and why.
+
+
+### AI-vastaus
+
+Below is the same application split into the requested files without changing behavior (same endpoints, status codes, response bodies, and logic). This is purely moving code and updating imports/wiring.
+
+models.py
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+
+from pydantic import BaseModel, Field, field_validator
+
+
+# -----------------------------
+# Shared time helpers
+# -----------------------------
+def parse_iso8601_tz(ts: str) -> datetime:
+    """
+    Parse ISO-8601 timestamp with timezone into an aware datetime.
+    Accepts 'Z' suffix by converting it to '+00:00'.
+    """
+    if not isinstance(ts, str) or not ts.strip():
+        raise ValueError("timestamp must be a non-empty string")
+
+    s = ts.strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+
+    dt = datetime.fromisoformat(s)  # expects offset like +02:00 or +00:00
+    if dt.tzinfo is None or dt.utcoffset() is None:
+        raise ValueError("timestamp must include a timezone offset")
+    return dt
+
+
+def to_utc(dt: datetime) -> datetime:
+    # dt is aware
+    return dt.astimezone(timezone.utc)
+
+
+def intervals_overlap(a_start: datetime, a_end: datetime, b_start: datetime, b_end: datetime) -> bool:
+    """
+    Half-open interval overlap: [start, end)
+    Overlap iff a_start < b_end AND b_start < a_end.
+    Back-to-back is allowed (end == other.start is NOT overlap).
+    """
+    return a_start < b_end and b_start < a_end
+
+
+def utc_iso_z(dt: datetime) -> str:
+    # dt is aware, UTC
+    return dt.isoformat().replace("+00:00", "Z")
+
+
+# -----------------------------
+# API models (transport layer)
+# -----------------------------
+class CreateBookingIn(BaseModel):
+    room_id: str = Field(..., min_length=1)
+    start: str
+    end: str
+
+    @field_validator("start", "end")
+    @classmethod
+    def must_be_iso8601_with_tz(cls, v: str) -> str:
+        # Validate format + timezone presence early; actual comparison happens in service.
+        parse_iso8601_tz(v)
+        return v
+
+
+class BookingOut(BaseModel):
+    booking_id: str
+    room_id: str
+    start: str  # ISO-8601 with timezone (we return UTC with Z)
+    end: str
+
+
+# -----------------------------
+# Domain model
+# -----------------------------
+@dataclass(frozen=True)
+class Booking:
+    booking_id: str
+    room_id: str
+    start_utc: datetime  # aware, UTC
+    end_utc: datetime    # aware, UTC
+```
+
+repository.py
+```python
+from __future__ import annotations
+
+from threading import Lock
+from typing import Dict, List
+
+from models import Booking
+
+
+class InMemoryBookingRepository:
+    def __init__(self) -> None:
+        self._items: Dict[str, Booking] = {}
+        self._lock = Lock()
+
+    def list_by_room(self, room_id: str) -> List[Booking]:
+        with self._lock:
+            return [b for b in self._items.values() if b.room_id == room_id]
+
+    def get_all(self) -> List[Booking]:
+        with self._lock:
+            return list(self._items.values())
+
+    def insert(self, booking: Booking) -> None:
+        with self._lock:
+            self._items[booking.booking_id] = booking
+
+    def delete(self, booking_id: str) -> bool:
+        with self._lock:
+            if booking_id not in self._items:
+                return False
+            del self._items[booking_id]
+            return True
+```
+services.py
+```python
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from uuid import uuid4
+
+from models import (
+    Booking,
+    BookingOut,
+    CreateBookingIn,
+    intervals_overlap,
+    parse_iso8601_tz,
+    to_utc,
+    utc_iso_z,
+)
+from repository import InMemoryBookingRepository
+
+
+class BookingError(Exception):
+    """Base class for domain/service errors."""
+
+
+class StartNotBeforeEndError(BookingError):
+    pass
+
+
+class StartInPastError(BookingError):
+    pass
+
+
+class OverlapConflictError(BookingError):
+    pass
+
+
+class BookingNotFoundError(BookingError):
+    pass
+
+
+class BookingService:
+    def __init__(self, repo: InMemoryBookingRepository) -> None:
+        self._repo = repo
+
+    def create_booking(self, payload: CreateBookingIn) -> BookingOut:
+        start = to_utc(parse_iso8601_tz(payload.start))
+        end = to_utc(parse_iso8601_tz(payload.end))
+
+        # Rule: start must be before end
+        if not (start < end):
+            raise StartNotBeforeEndError()
+
+        # Rule: bookings cannot be in the past (start >= now)
+        now = datetime.now(timezone.utc)
+        if start < now:
+            raise StartInPastError()
+
+        # Rule: bookings for the same room must not overlap (half-open intervals)
+        for b in self._repo.get_all():
+            if b.room_id != payload.room_id:
+                continue
+            if intervals_overlap(start, end, b.start_utc, b.end_utc):
+                raise OverlapConflictError()
+
+        booking_id = f"bkg_{uuid4().hex}"
+        booking = Booking(
+            booking_id=booking_id,
+            room_id=payload.room_id,
+            start_utc=start,
+            end_utc=end,
+        )
+        self._repo.insert(booking)
+
+        return BookingOut(
+            booking_id=booking.booking_id,
+            room_id=booking.room_id,
+            start=utc_iso_z(booking.start_utc),
+            end=utc_iso_z(booking.end_utc),
+        )
+
+    def delete_booking(self, booking_id: str) -> None:
+        deleted = self._repo.delete(booking_id)
+        if not deleted:
+            raise BookingNotFoundError()
+
+    def list_bookings_for_room(self, room_id: str):
+        items = self._repo.list_by_room(room_id)
+        items.sort(key=lambda b: b.start_utc)
+
+        return [
+            BookingOut(
+                booking_id=b.booking_id,
+                room_id=b.room_id,
+                start=utc_iso_z(b.start_utc),
+                end=utc_iso_z(b.end_utc),
+            )
+            for b in items
+        ]
+```
+
+api.py
+```python
+from __future__ import annotations
+
+from typing import List
+
+from fastapi import APIRouter, HTTPException, Path, status
+
+from models import BookingOut, CreateBookingIn
+from services import (
+    BookingNotFoundError,
+    BookingService,
+    OverlapConflictError,
+    StartInPastError,
+    StartNotBeforeEndError,
+)
+
+
+def create_router(service: BookingService) -> APIRouter:
+    router = APIRouter()
+
+    @router.post("/bookings", response_model=BookingOut, status_code=status.HTTP_201_CREATED)
+    def create_booking(payload: CreateBookingIn) -> BookingOut:
+        try:
+            return service.create_booking(payload)
+        except StartNotBeforeEndError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Validation error: start must be before end.",
+            )
+        except StartInPastError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Validation error: booking start cannot be in the past.",
+            )
+        except OverlapConflictError:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Overlap conflict: booking overlaps an existing booking in this room.",
+            )
+
+    @router.delete("/bookings/{booking_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_booking(booking_id: str = Path(..., min_length=1)) -> None:
+        try:
+            service.delete_booking(booking_id)
+            return None
+        except BookingNotFoundError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Booking not found.",
+            )
+
+    @router.get("/rooms/{room_id}/bookings", response_model=List[BookingOut])
+    def list_bookings_for_room(room_id: str = Path(..., min_length=1)) -> List[BookingOut]:
+        return service.list_bookings_for_room(room_id)
+
+    return router
+```
+main.py
+```python
+from __future__ import annotations
+
+from fastapi import FastAPI
+
+from api import create_router
+from repository import InMemoryBookingRepository
+from services import BookingService
+
+app = FastAPI(title="Meeting Room Booking API", version="1.0.0")
+
+# Wire up dependencies (still in-memory; behavior unchanged)
+_repo = InMemoryBookingRepository()
+_service = BookingService(_repo)
+
+# Register routes
+app.include_router(create_router(_service))
+```
+Brief explanation of what moved and why
+- models.py: Holds the Pydantic request/response models and the Booking dataclass (domain model). The existing timestamp/interval helper functions stayed close to the models because validators already depended on them.
+- repository.py: Contains the in-memory storage and locking (dict + Lock) so concurrency and storage concerns are isolated from business logic and HTTP.
+- services.py: Contains all booking-related business rules and domain errors. This keeps validation and overlap logic out of the API layer.
+- api.py: Defines only the routes and translates service exceptions into the same HTTPException status codes and detail strings as before.
+- main.py: Creates the FastAPI app and wires repository + service + router together.
+
+If you want, I can also show a minimal folder layout (with __init__.py notes) depending on whether you’re running this as a package or as flat files.
