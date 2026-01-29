@@ -1251,7 +1251,7 @@ Brief explanation of what moved and why
 If you want, I can also show a minimal folder layout (with __init__.py notes) depending on whether you’re running this as a package or as flat files.
 
 
-### Edge cases I will be testing
+### Edge cases joita aion testata
 
 - create a valid booking -> 201
 - start == end / start > end -> 422
@@ -1265,4 +1265,43 @@ If you want, I can also show a minimal folder layout (with __init__.py notes) de
 - delete existing booking -> 204
 - delete unknown booking -> 404
 
--> Käytin VSCoden Copilot automaattista täyttöominaisuutta apuna ensimmäisen version testien luontiin. 
+-> Käytän VSCoden Copilot automaattista täyttöominaisuutta apuna ensimmäisen version testien luontiin. 
+
+### Prompti
+
+Describe honestly the good things about these tests and what I should improve. Keep it brief
+
+### AI-vastaus (VSCode Copilot Agentti)
+
+Good things:
+
+- Excellent coverage of business logic rules (past dates, overlaps, back-to-back handling)
+- Tests isolate concerns well (one scenario per test)
+- Good edge case handling (different rooms, timezone validation, half-open intervals)
+- Clean setup using TestClient
+
+Improvements needed:
+
+- State pollution: Tests create bookings that persist across tests. Use a fixture or teardown to isolate test state.
+- Magic strings: Room IDs and timestamps scattered throughout. Extract constants or fixtures.
+- Assertion detail: Some assertions could verify booking IDs were returned to confirm data integrity.
+- Missing coverage: No tests for empty room listings or edge cases like midnight boundaries.
+- The test suite is fundamentally solid—the main issue is test isolation that could cause flakiness.
+
+### Prompti
+
+Improve these tests with this change: every test should be independent and use unique room_id per test (you can use UUID for example). Add a test_list_bookings_empty_room() for edge case coverage testing.
+
+### AI-vastaus (VSCode Copilot Agentti)
+
+Now I'll refactor the tests to use unique room IDs per test:
+
+Edited
+test_api.py+50-22
+Done. The tests now:
+
+- Generate unique room IDs per test using UUID
+- No state pollution between tests
+- Added assertions for booking_id existence
+- Added test_list_bookings_empty_room() for edge case coverage
+Each test is now fully independent and can run in any order without interference.
