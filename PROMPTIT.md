@@ -1249,3 +1249,20 @@ Brief explanation of what moved and why
 - main.py: Creates the FastAPI app and wires repository + service + router together.
 
 If you want, I can also show a minimal folder layout (with __init__.py notes) depending on whether you’re running this as a package or as flat files.
+
+
+### Edge cases I will be testing
+
+- create a valid booking -> 201
+- start == end / start > end -> 422
+- start in the past -> 422
+- missing timezone -> 422
+- overlap in the same room -> 409
+- back-to-back booking allowed -> 201
+- same time different room -> 201
+- get empty list -> 200 + []
+- get list -> sorted list
+- delete existing booking -> 204
+- delete unknown booking -> 404
+
+-> Käytin VSCoden Copilot automaattista täyttöominaisuutta apuna ensimmäisen version testien luontiin. 
