@@ -1,9 +1,17 @@
+import pytest
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
-from main import app
+from main import app, _repo
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def reset_repository():
+    """Clear repository before each test."""
+    _repo.reset()
+    yield
 
 
 def unique_room_id() -> str:

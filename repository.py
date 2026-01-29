@@ -29,3 +29,9 @@ class InMemoryBookingRepository:
                 return False
             del self._items[booking_id]
             return True
+
+    def reset(self) -> None:
+        """Clear all bookings. For testing only."""
+        with self._lock:
+            self._items.clear()
+       

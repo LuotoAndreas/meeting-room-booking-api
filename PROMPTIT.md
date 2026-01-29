@@ -1305,3 +1305,91 @@ Done. The tests now:
 - Added assertions for booking_id existence
 - Added test_list_bookings_empty_room() for edge case coverage
 Each test is now fully independent and can run in any order without interference.
+
+### Prompti
+
+Even after changing the tests to use unique room_ids, the tests still seem to share some state.
+Can you explain why this happens in this FastAPI app that uses an in-memory repository, and why unique IDs alone don’t fully isolate tests?
+
+### AI-vastaus (VSCode Copilot Agentti)
+
+The issue is state accumulation, not logical conflicts.
+
+Why it happens:
+
+1. Module-level singleton: The repository is created once when main.py loads: 
+
+```python
+_repo = InMemoryBookingRepository()
+```
+This instance persists for the entire test session.
+
+2. Shared dictionary: All tests share the same _items dictionary inside _repo. Bookings from every test accumulate there.
+
+3. Unique room IDs only prevent overlap conflicts, not state sharing:
+
+- Test A creates bookings for room_abc123 → stored in _repo._items
+- Test B creates bookings for room_def456 → also stored in same _repo._items
+- Both sets of bookings coexist in memory
+
+Why this matters:
+
+- get_all() returns bookings from all previous tests
+- Memory accumulates across tests (minor in unit tests, serious in large suites)
+- Tests aren't truly isolated—they just avoid logical conflicts
+- If a test accidentally checks repository size or relies on state assumptions, it fails
+Example:
+
+```python
+def test_something():
+    # This might fail if earlier tests left bookings in repo
+    assert len(_repo.get_all()) == 0  # ← Fails! Bookings from previous tests exist
+```
+The solution: Reset the repository state between tests (via the reset() method). Unique room IDs are good for preventing conflicts, but they don't replace isolation.
+
+### Prompti
+
+Unique room_ids reduce overlap conflicts but tests still share in-memory state because the repository is created at module level in main.py.
+
+What is the cleanest way to achieve true test isolation without reloading modules or recreating the FastAPI app, and without changing API behavior?
+
+### AI-vastaus (VSCode Copilot Agentti)
+
+The cleanest approach is to expose a reset method on the repository and call it between tests. This:
+
+- Doesn't require module reloading or app recreation
+- Doesn't change API behavior
+- Keeps test setup simple and explicit
+- Leverages the existing thread-safety locks
+Step 1: Add a reset method to the repository:
+
+```python
+def reset(self) -> None:
+    """Clear all bookings. For testing only."""
+    with self._lock:
+        self._items.clear()
+```
+
+Step 2: Access the repo from the app and reset it in a pytest fixture:
+
+```python
+import pytest
+from uuid import uuid4
+from fastapi.testclient import TestClient
+from main import app, _repo
+
+client = TestClient(app)
+
+@pytest.fixture(autouse=True)
+def reset_repository():
+    """Clear repository before each test."""
+    _repo.reset()
+    yield
+```
+This is cleaner than the alternatives because:
+
+- No module reloading or app recreation
+- No mocking (real integration tests)
+- The reset() method is internal-only (testing concern)
+- Tests are truly isolated with minimal setup
+Would you like me to implement this?
