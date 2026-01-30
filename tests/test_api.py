@@ -171,14 +171,29 @@ def test_list_bookings_for_room():
             "end": "2030-01-03T13:00:00Z"
         }
     )
+    client.post(
+        "/bookings",
+        json={
+            "room_id": room_id,
+            "start": "2030-01-03T09:00:00Z",
+            "end": "2030-01-03T10:00:00Z"
+        }
+    )
 
     response = client.get(f"/rooms/{room_id}/bookings")
     assert response.status_code == 200
     data = response.json()
-    assert len(data) == 2
+    assert len(data) == 3
     assert data[0]["room_id"] == room_id
     assert data[1]["room_id"] == room_id
+    assert data[2]["room_id"] == room_id
 
+
+    # Assert that bookings are sorted by start time
+    assert data[0]["start"] == "2030-01-03T09:00:00Z"
+    assert data[1]["start"] == "2030-01-03T10:00:00Z"
+    assert data[2]["start"] == "2030-01-03T12:00:00Z"
+    
 def test_list_bookings_empty_room():
     room_id = unique_room_id()
     response = client.get(f"/rooms/{room_id}/bookings")
