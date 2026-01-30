@@ -15,16 +15,6 @@ class InMemoryBookingRepository:
         with self._lock:
             return [b for b in self._items.values() if b.room_id == room_id]
 
-    # The old get_all bookings method that is no longer used for now
-    def get_all(self) -> List[Booking]:
-        with self._lock:
-            return list(self._items.values())
-
-    # The old insert method that is no longer used for now
-    def insert(self, booking: Booking) -> None:
-        with self._lock:
-            self._items[booking.booking_id] = booking
-    
     # New method to insert booking if no overlap exists
     def insert_if_no_overlap(self, booking: Booking) -> bool:
          """

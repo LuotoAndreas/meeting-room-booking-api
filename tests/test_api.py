@@ -154,7 +154,7 @@ def test_same_time_different_rooms_no_conflict():
 
 def test_list_bookings_for_room():
     room_id = unique_room_id()
-    # Create two bookings for this room
+    # Create three bookings for this room
     client.post(
         "/bookings",
         json={
@@ -187,7 +187,6 @@ def test_list_bookings_for_room():
     assert data[0]["room_id"] == room_id
     assert data[1]["room_id"] == room_id
     assert data[2]["room_id"] == room_id
-
 
     # Assert that bookings are sorted by start time
     assert data[0]["start"] == "2030-01-03T09:00:00Z"
