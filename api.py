@@ -23,12 +23,12 @@ def create_router(service: BookingService) -> APIRouter:
             return service.create_booking(payload)
         except StartNotBeforeEndError:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Validation error: start must be before end.",
             )
         except StartInPastError:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Validation error: booking start cannot be in the past.",
             )
         except OverlapConflictError:
