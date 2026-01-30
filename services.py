@@ -7,7 +7,6 @@ from models import (
     Booking,
     BookingOut,
     CreateBookingIn,
-    intervals_overlap,
     parse_iso8601_tz,
     to_utc,
     utc_iso_z,
@@ -52,13 +51,7 @@ class BookingService:
         if start < now:
             raise StartInPastError()
 
-        # Rule: bookings for the same room must not overlap (half-open intervals)
-        for b in self._repo.get_all():
-            if b.room_id != payload.room_id:
-                continue
-            if intervals_overlap(start, end, b.start_utc, b.end_utc):
-                raise OverlapConflictError()
-
+        # Rule: no overlap with existing bookings in the same room
         booking_id = f"bkg_{uuid4().hex}"
         booking = Booking(
             booking_id=booking_id,
@@ -66,7 +59,10 @@ class BookingService:
             start_utc=start,
             end_utc=end,
         )
-        self._repo.insert(booking)
+
+        inserted = self._repo.insert_if_no_overlap(booking)
+        if not inserted:
+            raise OverlapConflictError()
 
         return BookingOut(
             booking_id=booking.booking_id,

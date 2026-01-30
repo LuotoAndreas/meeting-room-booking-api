@@ -1393,3 +1393,39 @@ This is cleaner than the alternatives because:
 - The reset() method is internal-only (testing concern)
 - Tests are truly isolated with minimal setup
 Would you like me to implement this?
+
+### Päällekkäisten varausten estämisen korjaus 
+
+Lisäsin repository.py tiedostoon metodin 
+
+```python
+def insert_if_no_overlap(self, booking: Booking) -> bool:
+         """
+        Atomically checks overlap and inserts the booking if possible.
+        Returns True if inserted, False if overlap exists.
+        """
+         with self._lock:
+            for existing in self._items.values():
+                if existing.room_id != booking.room_id:
+                    continue
+
+                if intervals_overlap(
+                    booking.start_utc,
+                    booking.end_utc,
+                    existing.start_utc,
+                    existing.end_utc,
+                ):
+                    return False
+
+            self._items[booking.booking_id] = booking
+            return True
+```
+joka tarkistaa huonevarausten päällekkäisyydet. AI:n alkuperäinen metodi
+
+```python
+def insert(self, booking: Booking) -> None:
+        with self._lock:
+            self._items[booking.booking_id] = booking
+```
+
+ei itsessään tarkistanut päällekkäisyyksiä ja mahdollisti samanaikaisten pyyntöjen tallentumisen. Käytin VSCode Copilotin automaattista koodinluonti ominaisuutta, jossa haluttu koodi generoituu valmiiksi luodun metodinimen (insert_if_no_overlap) perusteella.
