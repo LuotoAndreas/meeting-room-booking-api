@@ -1,5 +1,5 @@
-Promptihistoria ChatGPT:n kanssa.
-Käytin ChatGPT:tä englanniksi, koska koen saavani sillä tarkempia ja luotettavampia vastauksia. Lähestymistapani oli ensin käyttää tekoälyä varmentamaan muutamia esikysymyksiä (esim. aikakäsittely, päällekkäisyyksien estäminen ja HTTP-statuskoodit) ennen varsinaisten toteutuspromptien kirjoittamista. Näiden pohjalta pystyin laatimaan selkeät ja rajatut promptit itse ohjelman tuottamista varten. Varsinainen koodin generointi tehtiin vasta tämän jälkeen mikä mielestäni vähentää korjausta vaativia bugeja huomattavasti. 
+Promptihistoria ChatGPT:n sekä VSCode Copilotin kanssa.
+Kirjoitin tekoälypromptit englanniksi, koska koen saavani sillä tarkempia ja luotettavampia vastauksia. Lähestymistapani oli ensin käyttää tekoälyä varmentamaan muutamia esikysymyksiä (esim. aikakäsittely, päällekkäisyyksien estäminen ja HTTP-statuskoodit) ennen varsinaisten toteutuspromptien kirjoittamista. Näiden pohjalta pystyin laatimaan selkeät ja rajatut promptit itse ohjelman tuottamista varten. Varsinainen koodin generointi tehtiin vasta tämän jälkeen mikä mielestäni vähentää korjausta vaativia bugeja huomattavasti. 
 
 
 ## Vaihe 1: Tekoäly parikoodaajana. Esikysymykset ennen varsinaisia prompteja: Aikakäsittely, varausten aikavälit sekä HTTP-statuskoodit varausrajapinnassa.
