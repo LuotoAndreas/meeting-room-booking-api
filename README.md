@@ -6,8 +6,15 @@ Yksinkertainen FastAPI-pohjainen rajapinta kokoushuoneiden varausten hallintaan.
 - Varauksen luonti, peruutus ja listaaminen huonekohtaisesti.
 - Ei päällekkäisiä varauksia, ei menneisyysvarauksia.
 
+## Avainpäätökset ja oletukset
+- Aikaleimat annetaan ISO-8601-muodossa aikavyöhyketiedolla ja normalisoidaan sisäisesti UTC:ksi.
+- Varaukset käsitellään puoliavoimina aikaväleinä **[start, end)**, jolloin peräkkäiset varaukset ovat sallittuja.
+- Säännöt: `start < end`, varauksen aloitus ei saa olla menneisyydessä, eikä saman huoneen varaukset saa mennä päällekkäin.
+- Järjestelmä estää päällekkäiset varaukset myös samanaikaisissa varauspyynnöissä käsittelemällä ne yksi kerrallaan.
+- Käytössä on in-memory-tietovarasto, joten data häviää sovelluksen uudelleenkäynnistyksessä.
+
 ## Asennus
-1. Asenna riippuvuudet: `pip install fastapi uvicorn pydantic pytest`
+- Asenna riippuvuudet: `pip install fastapi uvicorn pydantic pytest`
 
 ## Käynnistäminen
 ```
